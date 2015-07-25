@@ -1,0 +1,88 @@
+---
+title: "Practical machine learning course project"
+output: html_document
+---
+
+## Executive summary
+
+I use the data of the sports activities of 6 individuals to try to predict whether they did the exercises correctly or incorrectly, falling in 5 categories. As there are many predicting variables (50+) and the problem seems nonlinear, I build a random forest model. This has a high accuracy, around 94%, even in the test sample.    
+
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har.)
+
+## Loading and cleaning data
+
+```{r}
+library(caret)
+library(dplyr)
+```
+
+```{r, cache=TRUE}
+activity_data<-read.csv("pml-training.csv", na.st=c("NA", ""))
+
+# indicator of complete columns (as some variables have many missing values)
+complete_column<-sapply(activity_data, function(x) sum(is.na(x)))==0
+
+#drop columns with missing values
+activity_full<-activity_data[,complete_column]
+
+#check if some variables have very low variance, to drop these 
+nearZeroVar(activity_full)
+
+#I drop the first 6 (names, etc), which are not relevant in the machine learning exercise
+activity_full<-activity_full %>% select(-(1:6))
+```
+
+## Sampling
+
+I divided the sample into a 70% training and 30% testing partition. But I also created a smaller (7%) training subsample to play around with, to choose among potential models (prediction trees, bagging, random forests).  
+
+```{r, cache=TRUE}
+set.seed(33)
+inTrain<-createDataPartition(y=activity_full$classe,p=0.7, list=FALSE)
+training<-activity_full[inTrain,]
+testing<-activity_full[-inTrain,]
+
+#I also create a smaller training sample, because running the code on the full sample appeared to be very slow...
+inTrain_small<-createDataPartition(y=activity_full$classe,p=0.07, list=FALSE)
+training_small<-activity_full[inTrain_small,]
+```
+
+## Some exploratory data analysis
+
+I tried to look for patterns in the pairwise plots (see an example below), but it seems that there are no discernible correlations: the connection between the explanatory variables and *classe* are not linear. That's why I chose tree-models.
+
+```{r, cache=TRUE}
+featurePlot(x=training[,1:6], y=training$classe, plot="pairs")
+```
+
+## Random forest model
+
+In the end, I found that a random forest model (see below) fits the small training data set (7%), as well as the training and test data surprisingly well. So I decided to stick with this. Running the random forest on a larger part of the sample (and doing more bootstraps) could probably add another 1-2%point to accuracy, but it was not worth the extra hours of running time for me, so I ran it on a relatively small sample.
+
+```{r, cache=TRUE}
+modFit<- train(classe ~ .,method="rf",data=training_small, prox=TRUE)
+```
+
+```{r, cache=TRUE}
+pred_train<-predict(modFit, newdata=training)
+#true versus predicted table in the training set
+table(training$classe, pred_train)
+#accuracy
+sum(diag(table(training$classe, pred_train)))/length(pred_train)
+
+
+pred_test<-predict(modFit, newdata=testing)
+
+#true versus predicted table in the test set
+table(testing$classe, pred_test)
+#accuracy
+sum(diag(table(testing$classe, pred_test)))/length(pred_test)
+```
+
+Still, the accuracy is both 94% for the (full) training and test set! Thus on average, just **6% of the cases are expected to be misclassified**, even out of sample.
+
+I also checked the importance of the explanatory variables. Below is the plot of the top 10.
+```{r, cache=TRUE}
+importance<-varImp(modFit)
+plot(importance, top=10)
+
